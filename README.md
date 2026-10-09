@@ -3,6 +3,7 @@
 Spring Boot로 할 일과 메모의 등록, 조회, 수정, 삭제를 구현한 실습 프로젝트다.
 할 일은 제목과 완료 여부를, 메모는 제목과 내용을 저장한다.
 데이터는 메모리에 저장하므로 서버를 재시작하면 초기화된다.
+POST, GET, PUT, DELETE를 각각 두 개씩 구현했으며, 공통 응답 형식과 요청 로그를 적용했다.
 
 Java 17 / Spring Boot 4.1.1 / Gradle
 
@@ -23,6 +24,15 @@ Java 17 / Spring Boot 4.1.1 / Gradle
 없는 ID로 수정하거나 삭제하면 404를 반환한다.
 
 ## 요청 데이터
+
+| 구분 | 필드 | 타입 | 설명 |
+| --- | --- | --- | --- |
+| 공통 | `id` | 정수 | 등록 시 서버에서 부여하는 ID |
+| 공통 | `title` | 문자열 | 할 일 또는 메모 제목 |
+| 할 일 | `completed` | boolean | 완료 여부 |
+| 메모 | `content` | 문자열 | 메모 내용 |
+
+`id`는 요청 본문에 넣지 않는다. 할 일과 메모의 ID는 각각 1부터 증가하며, 목록은 ID 순서로 반환한다.
 
 할 일 등록·수정:
 
@@ -87,25 +97,67 @@ POST와 PUT의 요청 본문은 `application/json`을 사용한다.
 | 503 | `GET /api/notes?simulate=503` |
 
 500과 503은 오류 응답을 확인하기 위한 옵션이다.
+두 목록 조회 API에서 `simulate=500` 또는 `simulate=503`을 사용할 수 있다.
 `practice.failure-simulation-enabled=false`로 설정하면 이 옵션을 끌 수 있다.
 
 ## 코드 구성
 
-- `task`, `note`: 각 API의 Controller, Service, 요청 DTO와 데이터 모델
-- `common`: 공통 응답과 예외 처리
-- `config`: 요청 로그 Interceptor와 JSON 입력 타입 설정
+- `WsdTeachingApplication`: Spring Boot 애플리케이션 실행
+- `task`, `note`: Controller에서 요청을 받고, Service에서 등록·조회·수정·삭제 처리
+- `TaskRequest`, `NoteRequest`: 요청 데이터와 필수값·길이 검증
+- `common`: `ApiResponse`로 응답을 감싸고, `GlobalExceptionHandler`에서 오류 처리. `FailureSimulator`는 500·503 응답 재현
+- `config`: `WebConfig`에서 Interceptor를 등록하고, `JsonConfig`에서 JSON 값의 타입 검사 설정
+
+Service는 `ConcurrentHashMap`에 데이터를 저장하고 `AtomicLong`으로 ID를 생성한다.
+Controller에서 검증을 통과한 요청만 Service로 전달한다.
 
 `LoggingInterceptor`를 `/api/**`에 연결해 요청 메소드, 경로, 쿼리와 응답 코드를 콘솔에 출력한다.
 두 API는 `ApiResponse`와 `GlobalExceptionHandler`를 함께 사용해 응답 형식을 맞췄다.
 등록 응답에는 생성한 데이터의 경로를 `Location` 헤더로 전달한다.
 삭제도 같은 JSON 형식을 반환하도록 200을 사용했다.
 
+예를 들어 할 일 목록을 조회하면 다음 로그가 남는다.
+
+```text
+[LoggingInterceptor] 요청 시작: GET /api/tasks
+[LoggingInterceptor] 요청 완료: GET /api/tasks status=200
+```
+
 ## 실행
+
+JDK 17을 설정한 뒤 프로젝트 폴더에서 실행한다.
+IntelliJ에서는 `WsdTeachingApplication`의 `main` 메소드를 실행해도 된다.
 
 ```bash
 ./gradlew bootRun
 ```
 
-주소: `http://localhost:8080`
+기본 주소는 `http://localhost:8080`이다. 실행 후 `/api/tasks` 또는 `/api/notes`에서 목록을 확인할 수 있다.
+
+## 사용 예시
+
+터미널에서 할 일을 등록한 뒤 조회·수정·삭제하는 예시다.
+`-i` 옵션으로 응답 코드와 헤더도 함께 확인할 수 있다.
+
+```bash
+# 등록
+curl -i -X POST http://localhost:8080/api/tasks \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"실습 과제 정리","completed":false}'
+
+# 목록 조회
+curl -i http://localhost:8080/api/tasks
+
+# 수정
+curl -i -X PUT http://localhost:8080/api/tasks/1 \
+  -H 'Content-Type: application/json' \
+  -d '{"title":"실습 과제 정리 완료","completed":true}'
+
+# 삭제
+curl -i -X DELETE http://localhost:8080/api/tasks/1
+```
+
+수정·삭제 예시의 `1`은 등록 응답으로 받은 ID로 바꿔 사용한다.
+메모도 `/api/notes`에 `title`, `content`를 보내 같은 방식으로 사용할 수 있다.
 
 참고: [수업 Spring Boot 예제](https://github.com/JBNU-KSL-25-02/springboot-tutorial)
